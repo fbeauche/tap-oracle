@@ -171,7 +171,37 @@ def produce_pk_constraints(conn, filter_schemas):
      else:
         pk_constraints[schema][table_name].append(column_name)
 
-   return pk_constraints;
+   return pk_constraints
+
+
+def produce_unique_constraints(conn, filter_schemas):
+   LOGGER.info("fetching unique constraints")
+   cur = conn.cursor()
+   unique_constraints = {}
+
+   binds_sql = [":{}".format(b) for b in range(len(filter_schemas))]
+   sql = filter_schemas_sql_clause("""
+   WITH unique_indexes AS (
+      SELECT i.owner, i.index_name, i.table_name, ROW_NUMBER() OVER(PARTITION BY i.table_name ORDER BY i.index_name) rk 
+      FROM all_indexes i  WHERE i.UNIQUENESS = 'UNIQUE' AND i.owner != 'SYS'
+   )
+   SELECT u.OWNER, u.TABLE_NAME, c.COLUMN_NAME
+   FROM unique_indexes u
+   INNER JOIN all_ind_columns  c ON u.INDEX_NAME = c.INDEX_NAME
+   WHERE u.rk = 1
+   """, binds_sql, "u")
+
+   for schema, table_name, column_name in cur.execute(sql, filter_schemas):
+     if unique_constraints.get(schema) is None:
+        unique_constraints[schema] = {}
+
+     if unique_constraints[schema].get(table_name) is None:
+        unique_constraints[schema][table_name] = [column_name]
+     else:
+        unique_constraints[schema][table_name].append(column_name)
+
+   return unique_constraints;
+
 
 def get_database_name(connection):
    cur = connection.cursor()
@@ -179,11 +209,12 @@ def get_database_name(connection):
    rows = cur.execute("SELECT name FROM v$database").fetchall()
    return rows[0][0]
 
-def produce_column_metadata(connection, table_info, table_schema, table_name, pk_constraints, column_schemas, cols):
+def produce_column_metadata(connection, table_info, table_schema, table_name, pk_constraints, unique_constraints, column_schemas, cols):
    mdata = {}
 
-   table_pks = pk_constraints.get(table_schema, {}).get(table_name, [])
-
+   table_pks = pk_constraints.get(table_schema, {}).get(table_name, None)
+   if table_pks is None: 
+      table_pks = unique_constraints.get(table_schema, {}).get(table_name, [])
    #NB> sadly, some system tables like XDB$STATS have P constraints for columns that do not exist so we must protect against this
    table_pks = list(filter(lambda pk: column_schemas.get(pk, Schema(None)).type is not None, table_pks))
 
@@ -256,6 +287,8 @@ def discover_columns(connection, table_info, filter_schemas):
 
 
    pk_constraints = produce_pk_constraints(connection, filter_schemas)
+   unique_consraints = produce_unique_constraints(connection, filter_schemas)
+
    entries = []
    for (k, cols) in itertools.groupby(columns, lambda c: (c.table_schema, c.table_name)):
       cols = list(cols)
@@ -270,6 +303,7 @@ def discover_columns(connection, table_info, filter_schemas):
                                    table_schema,
                                    table_name,
                                    pk_constraints,
+                                   unique_consraints,
                                    column_schemas,
                                    cols)
 
