@@ -1,5 +1,7 @@
 ### tap-oracle
 
+
+
 Tap for Oracle
 
 you must enable supplemental logging before turning on logminer
@@ -25,6 +27,19 @@ VALUE:24
 DESCRIPTION:ArchiveLog expiration specifies the duration in hours before
 archive/redo log files are automatically deleted.
 /
+
+
+### Test locally with docker 
+
+Create the Oracle containner : 
+```
+docker run -d -p 1521:1521 oracleinanutshell/oracle-xe-11g  
+```
+
+TODO : Find path to mount as volume. 
+
+
+
 
 ---
 

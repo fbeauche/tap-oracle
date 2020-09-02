@@ -20,6 +20,7 @@ from singer.schema import Schema
 from singer.catalog import Catalog, CatalogEntry
 import tap_oracle.db as orc_db
 import tap_oracle.sync_strategies.log_miner as log_miner
+import tap_oracle.sync_strategies.log_miner_cached as log_miner_cached
 import tap_oracle.sync_strategies.full_table as full_table
 import tap_oracle.sync_strategies.incremental as incremental
 import tap_oracle.sync_strategies.common as common
@@ -427,10 +428,10 @@ def sync_method_for_streams(streams, state, default_replication_method):
 
       state = clear_state_on_replication_change(state, stream.tap_stream_id, replication_key, replication_method)
 
-      if replication_method not in set(['LOG_BASED', 'FULL_TABLE', 'INCREMENTAL']):
+      if replication_method not in set(['LOG_BASED', 'FULL_TABLE', 'INCREMENTAL', 'LOG_BASED_CACHED']):
          raise Exception("Unrecognized replication_method {}".format(replication_method))
 
-      if replication_method == 'LOG_BASED' and stream_metadata.get((), {}).get('is-view'):
+      if replication_method in set (['LOG_BASED','LOG_BASED_CACHED']) and stream_metadata.get((), {}).get('is-view'):
          raise Exception('LogMiner is NOT supported for views. Please change the replication method for {}'.format(stream.tap_stream_id))
 
       md_map = metadata.to_map(stream.metadata)
@@ -444,7 +445,7 @@ def sync_method_for_streams(streams, state, default_replication_method):
       if replication_method == 'FULL_TABLE':
          lookup[stream.tap_stream_id] = 'full'
          traditional_streams.append(stream)
-      elif replication_method == 'LOG_BASED':
+      elif replication_method == 'LOG_BASED' or replication_method == 'LOG_BASED_CACHED' :
          if not get_bookmark(state, stream.tap_stream_id, 'scn'):
             #initial full-table phase of LogMiner
             lookup[stream.tap_stream_id] = 'log_initial'
@@ -459,6 +460,9 @@ def sync_method_for_streams(streams, state, default_replication_method):
          elif get_bookmark(state, stream.tap_stream_id, 'ORA_ROWSCN') and not get_bookmark(state, stream.tap_stream_id, 'scn'):
             raise Exception("ORA_ROWSCN found(%s) in state implying log inintial full-table replication but no scn is present")
 
+         elif replication_method == 'LOG_BASED_CACHED' :
+            lookup[stream.tap_stream_id] = 'log_cached'
+            traditional_streams.append(stream)
          else:
             #initial stage of LogMiner(full-table) has been completed. moving onto pure LogMiner
             lookup[stream.tap_stream_id] = 'pure_log'
@@ -511,7 +515,9 @@ def sync_traditional_stream(conn_config, stream, state, sync_method, end_scn):
    elif sync_method == 'incremental':
       state = singer.set_currently_syncing(state, stream.tap_stream_id)
       state = do_sync_incremental(conn_config, stream, state, desired_columns)
-
+   elif sync_method == 'log_cached':
+      state = singer.set_currently_syncing(state, stream.tap_stream_id)
+      state = log_miner_cached.sync_table(conn_config, stream, state, desired_columns)
    else:
       raise Exception("unknown sync method {} for stream {}".format(sync_method, stream.tap_stream_id))
 
@@ -523,7 +529,7 @@ def any_logical_streams(streams, default_replication_method):
     for stream in streams:
         stream_metadata = metadata.to_map(stream.metadata)
         replication_method = stream_metadata.get((), {}).get('replication-method', default_replication_method)
-        if replication_method == 'LOG_BASED':
+        if replication_method == 'LOG_BASED' or replication_method == 'LOG_BASED_CACHED':
             return True
 
     return False

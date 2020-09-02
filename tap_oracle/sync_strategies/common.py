@@ -60,8 +60,9 @@ def OutputTypeHandler(cursor, name, defaultType, size, precision, scale):
         return cursor.var(decimal.Decimal, arraysize = cursor.arraysize)
 
 
-def prepare_columns_sql(stream, c):
-   column_name = """ "{}" """.format(c)
+def prepare_columns_sql(stream, c, tablePrefix):
+
+   column_name = f""" {tablePrefix}."{c}" """ if tablePrefix  else  f""" "{c}" """ 
    if 'string' in stream.schema.properties[c].type and stream.schema.properties[c].format == 'date-time':
       return "to_char({})".format(column_name)
 
