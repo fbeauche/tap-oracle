@@ -287,7 +287,7 @@ def discover_columns(connection, table_info, filter_schemas):
 
 
    pk_constraints = produce_pk_constraints(connection, filter_schemas)
-   unique_consraints = produce_unique_constraints(connection, filter_schemas)
+   unique_constraints = produce_unique_constraints(connection, filter_schemas)
 
    entries = []
    for (k, cols) in itertools.groupby(columns, lambda c: (c.table_schema, c.table_name)):
@@ -303,7 +303,7 @@ def discover_columns(connection, table_info, filter_schemas):
                                    table_schema,
                                    table_name,
                                    pk_constraints,
-                                   unique_consraints,
+                                   unique_constraints,
                                    column_schemas,
                                    cols)
 
